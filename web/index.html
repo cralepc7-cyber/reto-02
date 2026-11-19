@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agente Registro de Contratos · Periferia IT</title>
+  <style>
+    :root { --bg: #0f172a; --card: #1e293b; --accent: #2563eb; --warn: #f59e0b; --text: #f8fafc; --muted: #94a3b8; }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100vh; }
+    header { padding: 14px 24px; background: var(--card); border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    #chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; max-width: 960px; width: 100%; margin: 0 auto; }
+    .msg { padding: 14px 18px; border-radius: 10px; line-height: 1.5; white-space: pre-wrap; }
+    .user { background: var(--accent); align-self: flex-end; max-width: 75%; }
+    .assistant { background: var(--card); align-self: flex-start; width: 100%; border: 1px solid #334155; }
+    .confirm-box { border: 2px solid var(--warn); background: rgba(245, 158, 11, 0.12); }
+    .badge-confirm { display: inline-block; background: var(--warn); color: #000; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 4px; margin-bottom: 8px; }
+    details.tools { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }
+    details.tools summary { cursor: pointer; color: #38bdf8; font-weight: 600; }
+    form { display: flex; gap: 10px; padding: 16px 24px; background: var(--card); border-top: 1px solid #334155; }
+    input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 15px; }
+    button { padding: 12px 20px; border-radius: 8px; border: none; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.5; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Periferia IT Group · Registro de Contratos Vigentes</strong>
+    <span id="status" style="font-size:13px;color:var(--muted)">Conectando...</span>
+  </header>
+  <div id="chat"></div>
+  <form id="form">
+    <input id="input" placeholder="Ej: Procesa el buzón de contratos con fecha de hoy 2026-09-03..." autocomplete="off" />
+    <button id="send" type="submit">Enviar</button>
+  </form>
+  <script>
+    const sessionId = "sesion-" + Math.random().toString(36).slice(2, 8);
+    const chat = document.getElementById("chat");
+    const form = document.getElementById("form");
+    const input = document.getElementById("input");
+    const send = document.getElementById("send");
+
+    fetch("/api/health").then(r => r.json()).then(h => {
+      document.getElementById("status").textContent = `Motor: ${h.provider} (${h.model})`;
+    });
+
+    function addMessage(role, text, toolCalls = [], needsConfirmation = false) {
+      const div = document.createElement("div");
+      div.className = `msg ${role} ${needsConfirmation ? "confirm-box" : ""}`;
+      let html = "";
+      if (needsConfirmation) {
+        html += `<div class="badge-confirm">REQUIERE CONFIRMACIÓN HUMANA</div><br/>`;
+      }
+      if (toolCalls.length > 0) {
+        html += `<details class="tools"><summary>Herramientas ejecutadas (${toolCalls.length})</summary>`;
+        for (const t of toolCalls) {
+          html += `<div style="margin-top:6px"><strong>${t.name}</strong>(${JSON.stringify(t.args)}) → <code>ok: ${t.result.ok}</code></div>`;
+        }
+        html += `</details>`;
+      }
+      div.innerHTML = html + text.replace(/</g, "&lt;");
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      addMessage("user", text);
+      send.disabled = true;
+      const thinking = document.createElement("div");
+      thinking.className = "msg assistant";
+      thinking.textContent = "Pensando y ejecutando herramientas...";
+      chat.appendChild(thinking);
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, message: text }),
+        });
+        const data = await res.json();
+        thinking.remove();
+        addMessage("assistant", data.reply, data.toolCalls || [], data.needsConfirmation);
+      } catch (err) {
+        thinking.textContent = "Error de red: " + err.message;
+      } finally {
+        send.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
